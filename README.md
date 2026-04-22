@@ -1,5 +1,9 @@
 # Poprompter
 
+<p align="center">
+  <img src="assets/demo.gif" alt="Poprompter Demo" width="100%">
+</p>
+
 使用 Python 基于 FastAPI + WebSocket + React 的多设备协同提词器系统，支持网络跨设备实时同步。
 
 ## 功能特性
