@@ -1,6 +1,6 @@
-# 高级局域网提词器
+# Poprompter
 
-基于 FastAPI + WebSocket + React 的多设备协同提词器系统，支持跨设备实时同步。
+使用Python基于FastAPI + WebSocket + React 的多设备协同提词器系统，支持网络跨设备实时同步。
 
 ## 功能特性
 
