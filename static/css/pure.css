@@ -1,0 +1,37 @@
+body { background-color: #171717; color: #fff; font-family: sans-serif; text-align: center; margin: 0; padding: 20px; transition: background-color 0.3s, color 0.3s; }
+.container { max-width: 400px; margin: 0 auto; padding-top: 10px; }
+.btn-play {
+    width: 180px; height: 180px; border-radius: 50%;
+    background-color: #2563eb; color: white; border: none;
+    font-size: 28px; font-weight: bold; margin: 30px auto; display: block;
+    cursor: pointer; box-shadow: 0 10px 25px rgba(0,0,0,0.5); transition: all 0.2s;
+}
+.btn-play.playing { 
+    background-color: #1f2937; color: #ef4444; 
+    border: 4px solid rgba(239, 68, 68, 0.3); box-shadow: none;
+}
+.grid { display: block; overflow: hidden; margin-bottom: 25px; }
+.btn-action {
+    width: 48%; float: left; padding: 35px 0; margin: 1%;
+    background-color: #262626; color: #60a5fa; border: none; border-radius: 20px;
+    font-size: 18px; font-weight: bold; cursor: pointer; transition: background-color 0.2s;
+}
+.btn-action:active { background-color: #404040; }
+.btn-reset {
+    width: 60%; padding: 12px; margin: 12px auto; display: block;
+    background-color: rgba(64, 64, 64, 0.5); color: #a3a3a3; border: none;
+    border-radius: 30px; font-size: 14px; cursor: pointer; transition: background-color 0.2s;
+}
+.btn-reset:active { background-color: rgba(64, 64, 64, 0.8); }
+
+#themeToggle { font-size: 12px; color: #737373; position: absolute; top: 10px; left: 15px; cursor: pointer; user-select: none; }
+#status { font-size: 12px; color: #737373; position: absolute; top: 10px; right: 15px; }
+
+body.theme-light { background-color: #f9fafb; color: #111827; }
+body.theme-light .btn-play { box-shadow: 0 10px 25px rgba(37,99,235,0.3); }
+body.theme-light .btn-play.playing { background-color: #fee2e2; color: #ef4444; border-color: rgba(239, 68, 68, 0.5); }
+body.theme-light .btn-action { background-color: #ffffff; color: #2563eb; border: 1px solid #e5e7eb; box-shadow: 0 2px 5px rgba(0,0,0,0.05); }
+body.theme-light .btn-action:active { background-color: #f3f4f6; }
+body.theme-light .btn-reset { background-color: #e5e7eb; color: #4b5563; }
+body.theme-light .btn-reset:active { background-color: #d1d5db; }
+body.theme-light #status, body.theme-light #themeToggle { color: #6b7280; }
