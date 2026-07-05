@@ -156,7 +156,10 @@ function ControllerView({ onExit }) {
         updateConfig('speed', roundSpeed(clamp((parseFloat(config.speed) || SPEED_MIN) + delta, SPEED_MIN, SPEED_MAX)));
     };
 
-    const progressPercent = displayStatus ? Math.round(displayStatus.progress * 100) : 0;
+    const displayProgress = displayStatus && Number.isFinite(displayStatus.progress)
+        ? clamp(displayStatus.progress, 0, 1)
+        : 0;
+    const progressPercent = Math.round(displayProgress * 100);
     const remainingTime = displayStatus ? formatDuration(displayStatus.remainingSeconds) : '--:--';
     const remainingScreens = displayStatus && Number.isFinite(displayStatus.remainingScreens)
         ? displayStatus.remainingScreens.toFixed(1)
@@ -164,8 +167,8 @@ function ControllerView({ onExit }) {
     const visibleScreenText = displayStatus && displayStatus.visibleScreenText
         ? displayStatus.visibleScreenText
         : '';
-    const displayScreenInfo = displayStatus && Number.isFinite(displayStatus.clientHeight)
-        ? `${Math.round(displayStatus.clientHeight)}px 屏幕 · ${remainingScreens} 屏剩余`
+    const displayScreenInfo = displayStatus
+        ? `${progressPercent}% · ${remainingTime} · ${remainingScreens}屏`
         : '等待显示端';
     const strictSyncEnabled = config ? config.strictSync !== false : true;
     const textLocked = Boolean(config && config.isPlaying);
@@ -176,11 +179,14 @@ function ControllerView({ onExit }) {
     const currentRowEnd = displayStatus && Number.isFinite(displayStatus.currentRowEnd) ? displayStatus.currentRowEnd : -1;
     const scriptLines = config ? config.text.split('\n') : [];
     const currentTextNeedle = currentRowText.trim();
-    const currentTextLineIndex = currentTextNeedle
-        ? scriptLines.findIndex(line => line.includes(currentTextNeedle))
+    const visibleLineIndexes = displayStatus && displayStatus.visibleLineIndexes
+        ? displayStatus.visibleLineIndexes
+        : [];
+    const fallbackCurrentLineIndex = currentTextNeedle
+        ? visibleLineIndexes.find(index => (scriptLines[index] || '').includes(currentTextNeedle))
         : -1;
     const effectiveCurrentLineIndex = currentTextNeedle && !((scriptLines[currentLineIndex] || '').includes(currentTextNeedle))
-        ? currentTextLineIndex
+        ? (Number.isFinite(fallbackCurrentLineIndex) ? fallbackCurrentLineIndex : currentLineIndex)
         : currentLineIndex;
 
     const renderHighlightedLine = (line, lineIndex) => {
@@ -234,10 +240,10 @@ function ControllerView({ onExit }) {
 
         return segments.map((segment, index) => {
             if (segment.tone === 'current') {
-                return <mark key={index} data-current-row="true" className="bg-neutral-500/60 text-white font-bold px-1 rounded">{segment.text}</mark>;
+                return <mark key={index} data-current-row="true" className="bg-neutral-500/45 text-white font-semibold px-1 rounded">{segment.text}</mark>;
             }
             if (segment.tone === 'visible') {
-                return <mark key={index} className="bg-neutral-700/35 text-neutral-100 px-1 rounded">{segment.text}</mark>;
+                return <mark key={index} className="bg-neutral-800/45 text-neutral-200 px-1 rounded">{segment.text}</mark>;
             }
             return <React.Fragment key={index}>{segment.text}</React.Fragment>;
         });
@@ -252,8 +258,8 @@ function ControllerView({ onExit }) {
                     const isVisibleLine = visibleLineSet.has(index);
                     const classes = [
                         'block min-h-[1.7em] px-2 py-1 rounded transition-colors',
-                        isCurrentLine ? 'bg-neutral-500/45 text-white font-bold' : '',
-                        !isCurrentLine && isVisibleLine ? 'bg-neutral-700/25 text-neutral-100' : '',
+                        isCurrentLine ? 'text-white font-semibold' : '',
+                        !isCurrentLine && isVisibleLine ? 'text-neutral-200' : '',
                         !isCurrentLine && !isVisibleLine ? 'text-neutral-400' : ''
                     ].filter(Boolean).join(' ');
                     return <span key={index} data-controller-line-index={index} className={classes}>{renderHighlightedLine(line, index)}</span>;
@@ -337,22 +343,16 @@ function ControllerView({ onExit }) {
                         </button>
                     </div>
 
-                    <div className="w-full space-y-2">
-                        <div className="flex items-center justify-between text-xs text-neutral-500">
-                            <span>显示端进度</span>
-                            <span>{displayStatus ? `${progressPercent}% · 剩余 ${remainingTime}` : '等待显示端'}</span>
+                    <div className="w-full space-y-3">
+                        <div className="flex items-center justify-between text-xs text-neutral-400">
+                            <span>显示状态</span>
+                            <span>{displayScreenInfo}</span>
                         </div>
                         <div className="h-2 w-full rounded bg-neutral-800 overflow-hidden">
                             <div className="h-full bg-blue-500 transition-all" style={{ width: `${displayStatus ? progressPercent : 0}%` }}></div>
                         </div>
-                        <div className="pt-2 space-y-2">
-                            <div className="flex items-center justify-between text-xs text-neutral-500">
-                                <span>当前显示屏内容</span>
-                                <span>{displayScreenInfo}</span>
-                            </div>
-                            <div className="max-h-32 overflow-y-auto rounded border border-neutral-800 bg-neutral-950/80 p-3 text-xs leading-relaxed text-neutral-200 whitespace-pre-wrap">
-                                {visibleScreenText || '等待显示端内容...'}
-                            </div>
+                        <div className="max-h-28 overflow-y-auto border-l-2 border-neutral-700 pl-3 text-xs leading-relaxed text-neutral-300 whitespace-pre-wrap">
+                            {visibleScreenText || '等待显示端内容...'}
                         </div>
                     </div>
                 </div>
@@ -926,7 +926,7 @@ function DisplayView({ onExit }) {
     if (!config) return <div className="absolute inset-0 flex items-center justify-center text-neutral-500 z-40 bg-black">正在连接服务器...</div>;
 
     const renderTextBlocks = () => {
-        return config.text.split('\\n').map((para, index) => {
+        return config.text.split('\n').map((para, index) => {
             return (
                 <div key={index} data-line-index={index} className="para-block min-h-[1.5em]">
                     {para || ' '}
