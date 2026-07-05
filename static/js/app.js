@@ -158,6 +158,15 @@ function ControllerView({ onExit }) {
 
     const progressPercent = displayStatus ? Math.round(displayStatus.progress * 100) : 0;
     const remainingTime = displayStatus ? formatDuration(displayStatus.remainingSeconds) : '--:--';
+    const remainingScreens = displayStatus && Number.isFinite(displayStatus.remainingScreens)
+        ? displayStatus.remainingScreens.toFixed(1)
+        : '--';
+    const visibleScreenText = displayStatus && displayStatus.visibleScreenText
+        ? displayStatus.visibleScreenText
+        : '';
+    const displayScreenInfo = displayStatus && Number.isFinite(displayStatus.clientHeight)
+        ? `${Math.round(displayStatus.clientHeight)}px 屏幕 · ${remainingScreens} 屏剩余`
+        : '等待显示端';
     const strictSyncEnabled = config ? config.strictSync !== false : true;
     const textLocked = Boolean(config && config.isPlaying);
     const visibleLineSet = new Set(displayStatus && displayStatus.visibleLineIndexes ? displayStatus.visibleLineIndexes : []);
@@ -336,6 +345,15 @@ function ControllerView({ onExit }) {
                         <div className="h-2 w-full rounded bg-neutral-800 overflow-hidden">
                             <div className="h-full bg-blue-500 transition-all" style={{ width: `${displayStatus ? progressPercent : 0}%` }}></div>
                         </div>
+                        <div className="pt-2 space-y-2">
+                            <div className="flex items-center justify-between text-xs text-neutral-500">
+                                <span>当前显示屏内容</span>
+                                <span>{displayScreenInfo}</span>
+                            </div>
+                            <div className="max-h-32 overflow-y-auto rounded border border-neutral-800 bg-neutral-950/80 p-3 text-xs leading-relaxed text-neutral-200 whitespace-pre-wrap">
+                                {visibleScreenText || '等待显示端内容...'}
+                            </div>
+                        </div>
                     </div>
                 </div>
 
@@ -486,6 +504,7 @@ function DisplayView({ onExit }) {
     const lastStatusSentRef = useRef(0);
     const endPauseSentRef = useRef(false);
     const lastLeaderStatusAtRef = useRef(0);
+    const scrollSampleRef = useRef({ time: 0, scrollTop: 0, pixelsPerSecond: 0 });
     const clientIdRef = useRef(createClientId('display'));
     
     const configRef = useRef(config);
@@ -655,7 +674,10 @@ function DisplayView({ onExit }) {
                 currentLineIndex: -1,
                 currentRowText: '',
                 visibleLineIndexes: [],
-                visibleRows: []
+                visibleRows: [],
+                visibleScreenText: '',
+                visibleStartLineIndex: -1,
+                visibleEndLineIndex: -1
             };
         }
 
@@ -712,13 +734,25 @@ function DisplayView({ onExit }) {
         });
 
         const selectedRow = currentTextRow || nearestTextRow || currentRow || nearestRow;
+        const sortedRows = visibleRows
+            .slice()
+            .sort((a, b) => a.top - b.top || a.lineIndex - b.lineIndex || a.rowIndex - b.rowIndex);
+        const visibleTextRows = sortedRows
+            .map(row => row.text)
+            .filter(text => text && text.trim());
+        const visibleStartLineIndex = sortedRows.length ? sortedRows[0].lineIndex : -1;
+        const visibleEndLineIndex = sortedRows.length ? sortedRows[sortedRows.length - 1].lineIndex : -1;
+
         return {
             currentLineIndex: selectedRow ? selectedRow.lineIndex : -1,
             currentRowText: selectedRow ? selectedRow.text : '',
             currentRowStart: selectedRow ? selectedRow.start : 0,
             currentRowEnd: selectedRow ? selectedRow.end : 0,
             visibleLineIndexes: Array.from(visibleLineIndexes),
-            visibleRows: visibleRows.slice(0, 40)
+            visibleRows: sortedRows.slice(0, 80),
+            visibleScreenText: visibleTextRows.join('\n'),
+            visibleStartLineIndex,
+            visibleEndLineIndex
         };
     };
 
@@ -734,7 +768,25 @@ function DisplayView({ onExit }) {
 
         const maxScroll = Math.max(0, container.scrollHeight - container.clientHeight);
         const remainingPixels = Math.max(0, maxScroll - container.scrollTop);
-        const pixelsPerSecond = Math.max(1, (parseFloat(activeConfig.speed) || 1) * 30);
+        const theoreticalPixelsPerSecond = Math.max(1, (parseFloat(activeConfig.speed) || 1) * 30);
+        const previousSample = scrollSampleRef.current;
+        let measuredPixelsPerSecond = previousSample.pixelsPerSecond || 0;
+        if (previousSample.time > 0) {
+            const elapsedSeconds = Math.max(0.001, (now - previousSample.time) / 1000);
+            const deltaPixels = Math.max(0, container.scrollTop - previousSample.scrollTop);
+            const instantPixelsPerSecond = deltaPixels / elapsedSeconds;
+            if (activeConfig.isPlaying && instantPixelsPerSecond > 0.5) {
+                measuredPixelsPerSecond = measuredPixelsPerSecond
+                    ? measuredPixelsPerSecond * 0.75 + instantPixelsPerSecond * 0.25
+                    : instantPixelsPerSecond;
+            }
+        }
+        scrollSampleRef.current = {
+            time: now,
+            scrollTop: container.scrollTop,
+            pixelsPerSecond: measuredPixelsPerSecond
+        };
+        const pixelsPerSecond = measuredPixelsPerSecond > 1 ? measuredPixelsPerSecond : theoreticalPixelsPerSecond;
         const progress = maxScroll > 0 ? clamp(container.scrollTop / maxScroll, 0, 1) : 0;
         const visibleTextStatus = getVisibleTextStatus();
 
@@ -746,6 +798,10 @@ function DisplayView({ onExit }) {
                 scrollHeight: container.scrollHeight,
                 clientHeight: container.clientHeight,
                 maxScroll,
+                remainingPixels,
+                remainingScreens: container.clientHeight > 0 ? remainingPixels / container.clientHeight : 0,
+                pixelsPerSecond,
+                measuredPixelsPerSecond,
                 remainingSeconds: remainingPixels / pixelsPerSecond,
                 ...visibleTextStatus
             }
