@@ -88,12 +88,15 @@ class ConnectionManager:
             self.active_connections.remove(websocket)
 
     async def broadcast(self, message: str, sender: WebSocket = None):
-        for connection in self.active_connections:
+        stale_connections = []
+        for connection in list(self.active_connections):
             if connection != sender:
                 try:
                     await connection.send_text(message)
                 except Exception:
-                    pass
+                    stale_connections.append(connection)
+        for connection in stale_connections:
+            self.disconnect(connection)
 
 manager = ConnectionManager()
 

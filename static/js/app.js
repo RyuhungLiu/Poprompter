@@ -70,16 +70,41 @@ function ControllerView({ onExit }) {
     const wsRef = useRef(null);
 
     useEffect(() => {
-        wsRef.current = new WebSocket(getWsUrl());
-        wsRef.current.onopen = () => {
-            wsRef.current.send(JSON.stringify({ type: 'REGISTER_ROLE', role: 'controller' }));
+        let reconnectTimer = null;
+        let closedByUnmount = false;
+
+        const connect = () => {
+            const socket = new WebSocket(getWsUrl());
+            wsRef.current = socket;
+
+            socket.onopen = () => {
+                socket.send(JSON.stringify({ type: 'REGISTER_ROLE', role: 'controller' }));
+            };
+
+            socket.onmessage = (event) => {
+                const data = JSON.parse(event.data);
+                if (data.type === 'SYNC_STATE') setConfig(data.payload);
+                if (data.type === 'SYNC_LOGS') setLogs(data.payload);
+            };
+
+            socket.onclose = () => {
+                if (!closedByUnmount) {
+                    reconnectTimer = setTimeout(connect, 1000);
+                }
+            };
+
+            socket.onerror = () => {
+                socket.close();
+            };
         };
-        wsRef.current.onmessage = (event) => {
-            const data = JSON.parse(event.data);
-            if (data.type === 'SYNC_STATE') setConfig(data.payload);
-            if (data.type === 'SYNC_LOGS') setLogs(data.payload);
+
+        connect();
+
+        return () => {
+            closedByUnmount = true;
+            clearTimeout(reconnectTimer);
+            if (wsRef.current) wsRef.current.close();
         };
-        return () => wsRef.current.close();
     }, []);
 
     const broadcastState = (newState) => {
@@ -273,6 +298,8 @@ function DisplayView({ onExit }) {
     const containerRef = useRef(null);
     const wsRef = useRef(null);
     const requestRef = useRef();
+    const wakeLockRef = useRef(null);
+    const keepAwakeFallbackRef = useRef(null);
     
     const configRef = useRef(config);
     useEffect(() => { configRef.current = config; }, [config]);
@@ -282,54 +309,154 @@ function DisplayView({ onExit }) {
         setTimeout(() => setToastMsg(null), 3000);
     };
 
+    const requestFullscreenCompat = () => {
+        const target = document.documentElement;
+        const requestFullscreen =
+            target.requestFullscreen ||
+            target.webkitRequestFullscreen ||
+            target.mozRequestFullScreen ||
+            target.msRequestFullscreen;
+
+        if (!requestFullscreen) {
+            showToast("当前浏览器不支持远程全屏控制");
+            return;
+        }
+
+        Promise.resolve(requestFullscreen.call(target)).then(() => {
+            showToast("已进入全屏模式");
+        }).catch(() => {
+            showToast("全屏失败：浏览器需要您先点击一次屏幕授权");
+        });
+    };
+
+    const stopKeepAwakeFallback = () => {
+        if (!keepAwakeFallbackRef.current) return;
+        const { video, intervalId, stream } = keepAwakeFallbackRef.current;
+        clearInterval(intervalId);
+        if (stream) stream.getTracks().forEach(track => track.stop());
+        if (video && video.parentNode) video.parentNode.removeChild(video);
+        keepAwakeFallbackRef.current = null;
+    };
+
+    const startKeepAwakeFallback = () => {
+        if (keepAwakeFallbackRef.current) {
+            showToast("已开启兼容防休眠模式");
+            return;
+        }
+
+        const canvas = document.createElement('canvas');
+        if (!canvas.captureStream) {
+            showToast("当前浏览器不支持防休眠");
+            return;
+        }
+
+        canvas.width = 2;
+        canvas.height = 2;
+        const ctx = canvas.getContext('2d');
+        let frame = 0;
+        const drawFrame = () => {
+            ctx.fillStyle = frame % 2 ? '#000' : '#111';
+            ctx.fillRect(0, 0, 2, 2);
+            frame += 1;
+        };
+        drawFrame();
+
+        const stream = canvas.captureStream(1);
+        const video = document.createElement('video');
+        video.muted = true;
+        video.loop = true;
+        video.playsInline = true;
+        video.setAttribute('playsinline', '');
+        video.style.cssText = 'position:fixed;width:1px;height:1px;opacity:0;pointer-events:none;left:-10px;top:-10px;';
+        video.srcObject = stream;
+        document.body.appendChild(video);
+
+        const intervalId = setInterval(drawFrame, 15000);
+        keepAwakeFallbackRef.current = { video, intervalId, stream };
+        Promise.resolve(video.play()).then(() => {
+            showToast("已开启兼容防休眠模式");
+        }).catch(() => {
+            stopKeepAwakeFallback();
+            showToast("防休眠失败：请先点击一次显示屏幕");
+        });
+    };
+
+    const requestWakeLockCompat = () => {
+        if ('wakeLock' in navigator && window.isSecureContext) {
+            navigator.wakeLock.request('screen').then((lock) => {
+                wakeLockRef.current = lock;
+                showToast("已成功开启防止休眠");
+            }).catch(() => {
+                startKeepAwakeFallback();
+            });
+            return;
+        }
+
+        startKeepAwakeFallback();
+    };
+
     useEffect(() => {
         document.body.style.overflow = 'hidden';
-        wsRef.current = new WebSocket(getWsUrl());
-        
-        wsRef.current.onopen = () => {
-            wsRef.current.send(JSON.stringify({ type: 'REGISTER_ROLE', role: 'display' }));
-        };
+        let reconnectTimer = null;
+        let closedByUnmount = false;
 
-        wsRef.current.onmessage = (event) => {
-            const data = JSON.parse(event.data);
-            if (data.type === 'SYNC_STATE') {
-                setConfig(data.payload);
-                setConnected(true);
-            } else if (data.type === 'COMMAND') {
-                if (data.action === 'RESET_SCROLL') {
-                    if (containerRef.current) containerRef.current.scrollTop = 0;
-                } else if (data.action === 'SCROLL_UP') {
-                    if (containerRef.current && configRef.current) {
-                        containerRef.current.scrollTop -= configRef.current.aidBlockHeight;
-                    }
-                } else if (data.action === 'FAST_FORWARD') {
-                    if (containerRef.current && configRef.current) {
-                        containerRef.current.scrollTop += configRef.current.aidBlockHeight;
-                    }
-                } else if (data.action === 'FULLSCREEN') {
-                    document.documentElement.requestFullscreen().then(() => {
-                        showToast("已进入全屏模式");
-                    }).catch(e => {
-                        showToast("全屏失败：浏览器需要您先点击一次屏幕授权");
-                    });
-                } else if (data.action === 'WAKE_LOCK') {
-                    if ('wakeLock' in navigator) {
-                        navigator.wakeLock.request('screen').then(() => {
-                            showToast("✅ 已成功开启防止休眠");
-                        }).catch((err) => {
-                            showToast("❌ 防止休眠请求被拒绝或失败");
-                        });
-                    } else {
-                        showToast("⚠️ 当前浏览器不支持 Wake Lock API (防止休眠)");
+        const connect = () => {
+            const socket = new WebSocket(getWsUrl());
+            wsRef.current = socket;
+
+            socket.onopen = () => {
+                socket.send(JSON.stringify({ type: 'REGISTER_ROLE', role: 'display' }));
+            };
+
+            socket.onmessage = (event) => {
+                const data = JSON.parse(event.data);
+                if (data.type === 'SYNC_STATE') {
+                    setConfig(data.payload);
+                    setConnected(true);
+                } else if (data.type === 'COMMAND') {
+                    if (data.action === 'RESET_SCROLL') {
+                        if (containerRef.current) containerRef.current.scrollTop = 0;
+                    } else if (data.action === 'SCROLL_UP') {
+                        if (containerRef.current && configRef.current) {
+                            containerRef.current.scrollTop -= configRef.current.aidBlockHeight;
+                        }
+                    } else if (data.action === 'FAST_FORWARD') {
+                        if (containerRef.current && configRef.current) {
+                            containerRef.current.scrollTop += configRef.current.aidBlockHeight;
+                        }
+                    } else if (data.action === 'FULLSCREEN') {
+                        requestFullscreenCompat();
+                    } else if (data.action === 'WAKE_LOCK') {
+                        requestWakeLockCompat();
                     }
                 }
-            }
+            };
+
+            socket.onclose = () => {
+                setConnected(false);
+                if (!closedByUnmount) {
+                    reconnectTimer = setTimeout(connect, 1000);
+                }
+            };
+
+            socket.onerror = () => {
+                socket.close();
+            };
         };
 
+        connect();
+
         return () => {
+            closedByUnmount = true;
+            clearTimeout(reconnectTimer);
             document.body.style.overflow = 'auto';
             if (wsRef.current) wsRef.current.close();
             cancelAnimationFrame(requestRef.current);
+            if (wakeLockRef.current) {
+                Promise.resolve(wakeLockRef.current.release()).catch(() => {});
+                wakeLockRef.current = null;
+            }
+            stopKeepAwakeFallback();
         };
     }, []);
 
@@ -348,18 +475,18 @@ function DisplayView({ onExit }) {
     if (!config) return <div className="absolute inset-0 flex items-center justify-center text-neutral-500 z-40 bg-black">正在连接服务器...</div>;
 
     const renderTextBlocks = () => {
+        let activeSize = config.fontSize;
         return config.text.split('\\n').map((para, index) => {
             let text = para;
-            let localSize = config.fontSize;
             const sizeRegex = /^&size:(\\d+)&/;
             if (sizeRegex.test(text)) {
                 const match = text.match(sizeRegex);
-                localSize = parseInt(match[1]);
+                activeSize = parseInt(match[1]);
                 text = text.replace(sizeRegex, '');
             }
             return (
                 <div key={index} className="para-block min-h-[1.5em]" style={{ 
-                        fontSize: `${localSize}px`,
+                        fontSize: `${activeSize}px`,
                         transition: config.lowPerformance ? 'none' : 'font-size 0.3s ease'
                     }}
                 >
