@@ -49,16 +49,19 @@ CDN_PRESETS = {
 }
 
 current_state = {
-    "text": "&size:80&欢迎使用 Poprompter！\n\n目前的段落字号为80。\n\n&size:50&现在字号已经支持直接静态渲染，\n这段文字固定为50px。\n\n&size:100&这是最后一段，\n字号放大为100px。\n\n\n\n...",
+    "text": "欢迎使用 Poprompter！\n\n在控制端输入稿件，显示端会自动同步滚动。\n\n你可以调节速度、画面占比、参考线位置和显示方向。\n\n纯净遥控器适合手机、Kindle 或旧设备临场控制。\n\n\n\n...",
     "isPlaying": False,
     "speed": 3,
-    "fontSize": 80,
     "lineWidth": 80,
     "mirror": False,
     "fontColor": "#FFFFFFFF",
     "guideColor": "#FF000055",
     "aidBlockColor": "#000088AA",
     "aidBlockHeight": 100,
+    "guidePosition": 50,
+    "textAlign": "left",
+    "autoPauseAtEnd": True,
+    "strictSync": True,
     "lowPerformance": False,
     "flipVertical": False,
     "invertColors": False
@@ -70,6 +73,9 @@ tailwind_is_css = False
 class ConnectionManager:
     def __init__(self):
         self.active_connections: list[WebSocket] = []
+        self.connection_roles: dict[WebSocket, str] = {}
+        self.connection_client_ids: dict[WebSocket, str] = {}
+        self.display_leader_id = None
 
     async def connect(self, websocket: WebSocket):
         await websocket.accept()
@@ -86,6 +92,22 @@ class ConnectionManager:
     def disconnect(self, websocket: WebSocket):
         if websocket in self.active_connections:
             self.active_connections.remove(websocket)
+        client_id = self.connection_client_ids.pop(websocket, None)
+        self.connection_roles.pop(websocket, None)
+        if client_id and client_id == self.display_leader_id:
+            self.display_leader_id = self.find_next_display_client_id()
+
+    def register(self, websocket: WebSocket, role: str, client_id: str):
+        self.connection_roles[websocket] = role
+        self.connection_client_ids[websocket] = client_id
+        if role == "display" and not self.display_leader_id:
+            self.display_leader_id = client_id
+
+    def find_next_display_client_id(self):
+        for connection in self.active_connections:
+            if self.connection_roles.get(connection) == "display":
+                return self.connection_client_ids.get(connection)
+        return None
 
     async def broadcast(self, message: str, sender: WebSocket = None):
         stale_connections = []
@@ -175,9 +197,28 @@ async def websocket_endpoint(websocket: WebSocket):
                 
             elif msg_type == "COMMAND":
                 await manager.broadcast(data, sender=websocket)
+
+            elif msg_type == "DISPLAY_STATUS":
+                client_id = manager.connection_client_ids.get(websocket)
+                role = manager.connection_roles.get(websocket)
+                if role == "display" and not manager.display_leader_id:
+                    manager.display_leader_id = client_id
+
+                payload = parsed_data.get("payload", {})
+                payload["sourceId"] = client_id
+                payload["isSyncLeader"] = client_id == manager.display_leader_id
+                parsed_data["payload"] = payload
+
+                if current_state.get("strictSync", True):
+                    if client_id == manager.display_leader_id:
+                        await manager.broadcast(json.dumps(parsed_data), sender=websocket)
+                else:
+                    await manager.broadcast(json.dumps(parsed_data), sender=websocket)
                 
             elif msg_type == "REGISTER_ROLE":
                 role = parsed_data.get("role")
+                client_id = parsed_data.get("clientId") or f"client-{id(websocket)}"
+                manager.register(websocket, role, client_id)
                 client_ip = websocket.client.host if websocket.client else "未知IP"
                 time_str = datetime.datetime.now().strftime("%H:%M:%S")
                 

@@ -5,7 +5,6 @@ const IconPause = ({className}) => <svg className={className} viewBox="0 0 24 24
 const IconSmartphone = ({className}) => <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="5" y="2" width="14" height="20" rx="2" ry="2"/><line x1="12" y1="18" x2="12.01" y2="18"/></svg>;
 const IconMonitor = ({className}) => <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>;
 const IconSettings = ({className}) => <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>;
-const IconType = ({className}) => <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="4 7 4 4 20 4 20 7"/><line x1="9" y1="20" x2="15" y2="20"/><line x1="12" y1="4" x2="12" y2="20"/></svg>;
 const IconAlignCenter = ({className}) => <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="10" x2="6" y2="10"/><line x1="21" y1="6" x2="3" y2="6"/><line x1="21" y1="14" x2="3" y2="14"/><line x1="18" y1="18" x2="6" y2="18"/></svg>;
 const IconFlipHorizontal = ({className}) => <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="8 3 8 21 4 12 8 3"/><polyline points="16 3 16 21 20 12 16 3"/><line x1="12" y1="3" x2="12" y2="21"/></svg>;
 const IconRotateCcw = ({className}) => <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>;
@@ -63,11 +62,31 @@ const getWsUrl = () => {
     return `${protocol}//${window.location.host}/ws`;
 };
 
+const createClientId = (prefix) => `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+
+const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
+const SPEED_MIN = 1;
+const SPEED_MAX = 5;
+const SPEED_STEP = 0.1;
+
+const roundSpeed = (value) => Math.round(value * 10) / 10;
+const formatSpeed = (value) => roundSpeed(parseFloat(value) || SPEED_MIN).toFixed(1);
+
+const formatDuration = (seconds) => {
+    if (!Number.isFinite(seconds) || seconds < 0) return '--:--';
+    const minutes = Math.floor(seconds / 60);
+    const rest = Math.floor(seconds % 60).toString().padStart(2, '0');
+    return `${minutes}:${rest}`;
+};
+
 function ControllerView({ onExit }) {
     const [config, setConfig] = useState(null);
     const [logs, setLogs] = useState([]);
+    const [displayStatus, setDisplayStatus] = useState(null);
     const [activeTab, setActiveTab] = useState('basic');
     const wsRef = useRef(null);
+    const clientIdRef = useRef(createClientId('controller'));
+    const scriptPreviewRef = useRef(null);
 
     useEffect(() => {
         let reconnectTimer = null;
@@ -78,13 +97,14 @@ function ControllerView({ onExit }) {
             wsRef.current = socket;
 
             socket.onopen = () => {
-                socket.send(JSON.stringify({ type: 'REGISTER_ROLE', role: 'controller' }));
+                socket.send(JSON.stringify({ type: 'REGISTER_ROLE', role: 'controller', clientId: clientIdRef.current }));
             };
 
             socket.onmessage = (event) => {
                 const data = JSON.parse(event.data);
                 if (data.type === 'SYNC_STATE') setConfig(data.payload);
                 if (data.type === 'SYNC_LOGS') setLogs(data.payload);
+                if (data.type === 'DISPLAY_STATUS') setDisplayStatus(data.payload);
             };
 
             socket.onclose = () => {
@@ -131,16 +151,130 @@ function ControllerView({ onExit }) {
     const fastForward = () => sendCommand('FAST_FORWARD');
     const forceFullscreen = () => sendCommand('FULLSCREEN');
     const preventSleep = () => sendCommand('WAKE_LOCK');
+    const adjustSpeed = (delta) => {
+        if (!config) return;
+        updateConfig('speed', roundSpeed(clamp((parseFloat(config.speed) || SPEED_MIN) + delta, SPEED_MIN, SPEED_MAX)));
+    };
+
+    const progressPercent = displayStatus ? Math.round(displayStatus.progress * 100) : 0;
+    const remainingTime = displayStatus ? formatDuration(displayStatus.remainingSeconds) : '--:--';
+    const strictSyncEnabled = config ? config.strictSync !== false : true;
+    const textLocked = Boolean(config && config.isPlaying);
+    const visibleLineSet = new Set(displayStatus && displayStatus.visibleLineIndexes ? displayStatus.visibleLineIndexes : []);
+    const currentLineIndex = displayStatus && Number.isFinite(displayStatus.currentLineIndex) ? displayStatus.currentLineIndex : -1;
+    const currentRowText = displayStatus && displayStatus.currentRowText ? displayStatus.currentRowText : '';
+    const currentRowStart = displayStatus && Number.isFinite(displayStatus.currentRowStart) ? displayStatus.currentRowStart : -1;
+    const currentRowEnd = displayStatus && Number.isFinite(displayStatus.currentRowEnd) ? displayStatus.currentRowEnd : -1;
+    const scriptLines = config ? config.text.split('\n') : [];
+    const currentTextNeedle = currentRowText.trim();
+    const currentTextLineIndex = currentTextNeedle
+        ? scriptLines.findIndex(line => line.includes(currentTextNeedle))
+        : -1;
+    const effectiveCurrentLineIndex = currentTextNeedle && !((scriptLines[currentLineIndex] || '').includes(currentTextNeedle))
+        ? currentTextLineIndex
+        : currentLineIndex;
+
+    const renderHighlightedLine = (line, lineIndex) => {
+        const rows = displayStatus && displayStatus.visibleRows
+            ? displayStatus.visibleRows
+                .filter(row => row.lineIndex === lineIndex && Number.isFinite(row.start) && Number.isFinite(row.end))
+                .sort((a, b) => a.start - b.start || a.end - b.end)
+            : [];
+        if (!line) return ' ';
+
+        const currentNeedleIndex = lineIndex === effectiveCurrentLineIndex && currentTextNeedle
+            ? line.indexOf(currentTextNeedle)
+            : -1;
+        const currentNeedleRange = currentNeedleIndex >= 0
+            ? { start: currentNeedleIndex, end: currentNeedleIndex + currentTextNeedle.length }
+            : null;
+        if (!rows.length && !currentNeedleRange) return line || ' ';
+
+        const boundaries = new Set([0, line.length]);
+        rows.forEach(row => {
+            boundaries.add(clamp(row.start, 0, line.length));
+            boundaries.add(clamp(row.end, 0, line.length));
+        });
+        if (currentNeedleRange) {
+            boundaries.add(currentNeedleRange.start);
+            boundaries.add(currentNeedleRange.end);
+        }
+        const points = Array.from(boundaries).sort((a, b) => a - b);
+        let cursor = 0;
+
+        const segments = [];
+        points.forEach((point) => {
+            if (point <= cursor) return;
+            const start = cursor;
+            const end = point;
+            const isCurrent = lineIndex === effectiveCurrentLineIndex && (
+                (lineIndex === currentLineIndex && start < currentRowEnd && end > currentRowStart) ||
+                (currentNeedleRange && start < currentNeedleRange.end && end > currentNeedleRange.start) ||
+                (currentTextNeedle && line.slice(start, end).includes(currentTextNeedle)) ||
+                (currentTextNeedle && currentTextNeedle.includes(line.slice(start, end).trim()))
+            );
+            const isVisible = rows.some(row => start < row.end && end > row.start);
+            segments.push({
+                text: line.slice(start, end),
+                tone: isCurrent ? 'current' : isVisible ? 'visible' : 'normal'
+            });
+            cursor = point;
+        });
+
+        if (!segments.length) return line || ' ';
+
+        return segments.map((segment, index) => {
+            if (segment.tone === 'current') {
+                return <mark key={index} data-current-row="true" className="bg-neutral-500/60 text-white font-bold px-1 rounded">{segment.text}</mark>;
+            }
+            if (segment.tone === 'visible') {
+                return <mark key={index} className="bg-neutral-700/35 text-neutral-100 px-1 rounded">{segment.text}</mark>;
+            }
+            return <React.Fragment key={index}>{segment.text}</React.Fragment>;
+        });
+    };
+
+    const renderScriptPreview = () => {
+        const lines = scriptLines;
+        return (
+            <div ref={scriptPreviewRef} className="flex-1 overflow-y-auto bg-neutral-950 p-6 text-lg leading-relaxed whitespace-pre-wrap">
+                {lines.map((line, index) => {
+                    const isCurrentLine = index === effectiveCurrentLineIndex;
+                    const isVisibleLine = visibleLineSet.has(index);
+                    const classes = [
+                        'block min-h-[1.7em] px-2 py-1 rounded transition-colors',
+                        isCurrentLine ? 'bg-neutral-500/45 text-white font-bold' : '',
+                        !isCurrentLine && isVisibleLine ? 'bg-neutral-700/25 text-neutral-100' : '',
+                        !isCurrentLine && !isVisibleLine ? 'text-neutral-400' : ''
+                    ].filter(Boolean).join(' ');
+                    return <span key={index} data-controller-line-index={index} className={classes}>{renderHighlightedLine(line, index)}</span>;
+                })}
+            </div>
+        );
+    };
 
     useEffect(() => {
         const handleKeyDown = (e) => {
             if (e.key === 'F3') { e.preventDefault(); togglePlay(); }
             else if (e.key === 'F4') { e.preventDefault(); scrollUp(); }
+            else if (e.key === 'F5') { e.preventDefault(); adjustSpeed(-SPEED_STEP); }
+            else if (e.key === 'F6') { e.preventDefault(); adjustSpeed(SPEED_STEP); }
             else if (e.key === 'F7') { e.preventDefault(); resetScroll(); }
         };
         window.addEventListener('keydown', handleKeyDown);
         return () => window.removeEventListener('keydown', handleKeyDown);
     }, [config]);
+
+    useEffect(() => {
+        if (!textLocked || effectiveCurrentLineIndex < 0 || !scriptPreviewRef.current) return;
+        const lineEl = scriptPreviewRef.current.querySelector(`[data-controller-line-index="${effectiveCurrentLineIndex}"]`);
+        const currentMark = scriptPreviewRef.current.querySelector('[data-current-row="true"]');
+        const targetEl = currentMark || lineEl;
+        if (!targetEl) return;
+        const container = scriptPreviewRef.current;
+        const targetTop = targetEl.offsetTop - container.clientHeight * 0.35;
+        container.scrollTo({ top: Math.max(0, targetTop), behavior: config.lowPerformance ? 'auto' : 'smooth' });
+    }, [textLocked, effectiveCurrentLineIndex, currentRowStart, currentRowText, config && config.lowPerformance]);
 
     if (!config) return <div className="min-h-screen bg-neutral-950 flex items-center justify-center text-white">连接服务器中...</div>;
 
@@ -151,12 +285,22 @@ function ControllerView({ onExit }) {
                     <h2 className="text-lg font-semibold flex items-center gap-2"><IconSmartphone className="w-5 h-5 text-blue-400" /> 控制端</h2>
                     <button onClick={onExit} className="text-sm text-neutral-400 hover:text-white">退出</button>
                 </div>
-                <textarea
-                    className="flex-1 w-full p-6 bg-neutral-950 text-lg resize-none focus:outline-none leading-relaxed"
-                    value={config.text}
-                    onChange={(e) => updateConfig('text', e.target.value)}
-                    placeholder="在此输入您的稿件..."
-                />
+                {textLocked && (
+                    <div className="px-4 py-2 bg-neutral-900 border-b border-neutral-800 text-xs text-neutral-400 flex items-center justify-between gap-3">
+                        <span>{strictSyncEnabled ? '严格同步播放中，稿件已锁定' : '播放中，稿件已锁定'}</span>
+                        <span className="truncate">{currentRowText ? `参考线当前行：${currentRowText}` : '等待显示端行数据'}</span>
+                    </div>
+                )}
+                {textLocked ? (
+                    renderScriptPreview()
+                ) : (
+                    <textarea
+                        className="flex-1 w-full p-6 bg-neutral-950 text-lg resize-none focus:outline-none leading-relaxed"
+                        value={config.text}
+                        onChange={(e) => updateConfig('text', e.target.value)}
+                        placeholder="在此输入您的稿件..."
+                    />
+                )}
             </div>
 
             <div className="w-full md:w-[420px] bg-neutral-900 flex flex-col shadow-2xl z-10 h-screen">
@@ -183,6 +327,16 @@ function ControllerView({ onExit }) {
                             <IconRotateCcw className="w-3 h-3" /> 回到开头
                         </button>
                     </div>
+
+                    <div className="w-full space-y-2">
+                        <div className="flex items-center justify-between text-xs text-neutral-500">
+                            <span>显示端进度</span>
+                            <span>{displayStatus ? `${progressPercent}% · 剩余 ${remainingTime}` : '等待显示端'}</span>
+                        </div>
+                        <div className="h-2 w-full rounded bg-neutral-800 overflow-hidden">
+                            <div className="h-full bg-blue-500 transition-all" style={{ width: `${displayStatus ? progressPercent : 0}%` }}></div>
+                        </div>
+                    </div>
                 </div>
 
                 <div className="flex border-b border-neutral-800 shrink-0">
@@ -195,17 +349,14 @@ function ControllerView({ onExit }) {
                         <div className="space-y-4">
                             <div className="flex justify-between items-center text-sm text-neutral-400">
                                 <span className="flex items-center gap-2"><IconSettings className="w-4 h-4" /> 滚动速度</span>
-                                <span className="text-white bg-neutral-800 px-2 py-1 rounded">{config.speed}</span>
+                                <span className="text-white bg-neutral-800 px-2 py-1 rounded">{formatSpeed(config.speed)}</span>
                             </div>
-                            <input type="range" min="1" max="15" step="0.5" value={config.speed} onChange={(e) => updateConfig('speed', parseFloat(e.target.value))} className="w-full h-2 bg-neutral-700 rounded-lg appearance-none accent-blue-500" />
-                        </div>
-
-                        <div className="space-y-4">
-                            <div className="flex justify-between items-center text-sm text-neutral-400">
-                                <span className="flex items-center gap-2"><IconType className="w-4 h-4" /> 字体大小</span>
-                                <span className="text-white bg-neutral-800 px-2 py-1 rounded">{config.fontSize}px</span>
+                            <div className="grid grid-cols-3 gap-2">
+                                <button onClick={() => adjustSpeed(-SPEED_STEP)} className="py-2 text-sm bg-neutral-800 hover:bg-neutral-700 rounded">慢一点</button>
+                                <button onClick={() => updateConfig('speed', 3)} className="py-2 text-sm bg-neutral-800 hover:bg-neutral-700 rounded">常速</button>
+                                <button onClick={() => adjustSpeed(SPEED_STEP)} className="py-2 text-sm bg-neutral-800 hover:bg-neutral-700 rounded">快一点</button>
                             </div>
-                            <input type="range" min="30" max="150" step="1" value={config.fontSize} onChange={(e) => updateConfig('fontSize', parseInt(e.target.value))} className="w-full h-2 bg-neutral-700 rounded-lg appearance-none accent-blue-500" />
+                            <input type="range" min={SPEED_MIN} max={SPEED_MAX} step={SPEED_STEP} value={config.speed} onChange={(e) => updateConfig('speed', roundSpeed(parseFloat(e.target.value)))} className="w-full h-2 bg-neutral-700 rounded-lg appearance-none accent-blue-500" />
                         </div>
 
                         <div className="space-y-4">
@@ -215,6 +366,33 @@ function ControllerView({ onExit }) {
                             </div>
                             <input type="range" min="30" max="100" step="5" value={config.lineWidth} onChange={(e) => updateConfig('lineWidth', parseInt(e.target.value))} className="w-full h-2 bg-neutral-700 rounded-lg appearance-none accent-blue-500" />
                         </div>
+
+                        <div className="space-y-4">
+                            <div className="flex justify-between items-center text-sm text-neutral-400">
+                                <span className="flex items-center gap-2"><IconAlignCenter className="w-4 h-4" /> 参考线位置</span>
+                                <span className="text-white bg-neutral-800 px-2 py-1 rounded">{config.guidePosition || 50}%</span>
+                            </div>
+                            <input type="range" min="35" max="70" step="1" value={config.guidePosition || 50} onChange={(e) => updateConfig('guidePosition', parseInt(e.target.value))} className="w-full h-2 bg-neutral-700 rounded-lg appearance-none accent-blue-500" />
+                        </div>
+
+                        <div className="space-y-3">
+                            <div className="flex justify-between items-center text-sm text-neutral-400">
+                                <span className="flex items-center gap-2"><IconAlignCenter className="w-4 h-4" /> 文本对齐</span>
+                                <span className="text-white bg-neutral-800 px-2 py-1 rounded">{config.textAlign || 'left'}</span>
+                            </div>
+                            <div className="grid grid-cols-3 gap-2">
+                                {['left', 'center', 'right'].map(align => (
+                                    <button key={align} onClick={() => updateConfig('textAlign', align)} className={`py-2 text-sm rounded ${config.textAlign === align || (!config.textAlign && align === 'left') ? 'bg-blue-600 text-white' : 'bg-neutral-800 hover:bg-neutral-700 text-neutral-300'}`}>
+                                        {align === 'left' ? '左对齐' : align === 'center' ? '居中' : '右对齐'}
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+
+                        <label className="flex items-center gap-3 text-sm text-neutral-300 bg-neutral-950 p-2 rounded border border-neutral-800 cursor-pointer">
+                            <input type="checkbox" checked={config.autoPauseAtEnd !== false} onChange={e => updateConfig('autoPauseAtEnd', e.target.checked)} className="rounded bg-neutral-800 border-neutral-700 w-4 h-4 accent-blue-500" />
+                            到达稿件末尾后自动暂停
+                        </label>
                     </div>
                 )}
 
@@ -225,6 +403,10 @@ function ControllerView({ onExit }) {
                             <label className="flex items-center gap-3 text-sm text-neutral-300 bg-neutral-950 p-2 rounded border border-neutral-800 cursor-pointer">
                                 <input type="checkbox" checked={config.lowPerformance} onChange={e => updateConfig('lowPerformance', e.target.checked)} className="rounded bg-neutral-800 border-neutral-700 w-4 h-4 accent-blue-500" />
                                 低配置模式 (取消动画减缓卡顿)
+                            </label>
+                            <label className="flex items-center gap-3 text-sm text-neutral-300 bg-neutral-950 p-2 rounded border border-neutral-800 cursor-pointer">
+                                <input type="checkbox" checked={config.strictSync !== false} onChange={e => updateConfig('strictSync', e.target.checked)} className="rounded bg-neutral-800 border-neutral-700 w-4 h-4 accent-blue-500" />
+                                严格同步显示端进度
                             </label>
                             <label className="flex items-center gap-3 text-sm text-neutral-300 bg-neutral-950 p-2 rounded border border-neutral-800 cursor-pointer">
                                 <input type="checkbox" checked={config.flipVertical} onChange={e => updateConfig('flipVertical', e.target.checked)} className="rounded bg-neutral-800 border-neutral-700 w-4 h-4 accent-blue-500" />
@@ -296,10 +478,15 @@ function DisplayView({ onExit }) {
     const [connected, setConnected] = useState(false);
     const [toastMsg, setToastMsg] = useState(null);
     const containerRef = useRef(null);
+    const contentRef = useRef(null);
     const wsRef = useRef(null);
     const requestRef = useRef();
     const wakeLockRef = useRef(null);
     const keepAwakeFallbackRef = useRef(null);
+    const lastStatusSentRef = useRef(0);
+    const endPauseSentRef = useRef(false);
+    const lastLeaderStatusAtRef = useRef(0);
+    const clientIdRef = useRef(createClientId('display'));
     
     const configRef = useRef(config);
     useEffect(() => { configRef.current = config; }, [config]);
@@ -395,6 +582,199 @@ function DisplayView({ onExit }) {
         startKeepAwakeFallback();
     };
 
+    const getRowsForLine = (lineEl, lineIndex) => {
+        const text = lineEl.textContent || ' ';
+        const node = lineEl.firstChild;
+        const fallbackRect = lineEl.getBoundingClientRect();
+        if (!node || node.nodeType !== Node.TEXT_NODE || text.length === 0 || !text.trim()) {
+            return [{
+                lineIndex,
+                rowIndex: 0,
+                start: 0,
+                end: text.length,
+                text,
+                top: fallbackRect.top,
+                bottom: fallbackRect.bottom
+            }];
+        }
+
+        const range = document.createRange();
+        const rows = [];
+        for (let i = 0; i < text.length; i += 1) {
+            range.setStart(node, i);
+            range.setEnd(node, i + 1);
+            const rects = range.getClientRects();
+            if (!rects.length) continue;
+            const rect = rects[0];
+            let row = rows[rows.length - 1];
+            if (!row || Math.abs(row.top - rect.top) > 3) {
+                row = {
+                    lineIndex,
+                    rowIndex: rows.length,
+                    start: i,
+                    end: i + 1,
+                    top: rect.top,
+                    bottom: rect.bottom
+                };
+                rows.push(row);
+            } else {
+                row.end = i + 1;
+                row.top = Math.min(row.top, rect.top);
+                row.bottom = Math.max(row.bottom, rect.bottom);
+            }
+        }
+        range.detach();
+
+        if (!rows.length) {
+            return [{
+                lineIndex,
+                rowIndex: 0,
+                start: 0,
+                end: text.length,
+                text,
+                top: fallbackRect.top,
+                bottom: fallbackRect.bottom
+            }];
+        }
+
+        return rows.map(row => ({
+            lineIndex: row.lineIndex,
+            rowIndex: row.rowIndex,
+            start: row.start,
+            end: row.end,
+            text: text.slice(row.start, row.end).trim() || text.slice(row.start, row.end) || ' ',
+            top: row.top,
+            bottom: row.bottom
+        }));
+    };
+
+    const getVisibleTextStatus = () => {
+        const content = contentRef.current;
+        if (!content) {
+            return {
+                currentLineIndex: -1,
+                currentRowText: '',
+                visibleLineIndexes: [],
+                visibleRows: []
+            };
+        }
+
+        const viewportHeight = window.innerHeight || document.documentElement.clientHeight;
+        const activeConfig = configRef.current || {};
+        const guideY = viewportHeight * ((activeConfig.guidePosition || 50) / 100);
+        const visibleLineIndexes = new Set();
+        const visibleRows = [];
+        let currentRow = null;
+        let currentTextRow = null;
+        let nearestRow = null;
+        let nearestTextRow = null;
+        let nearestDistance = Infinity;
+        let nearestTextDistance = Infinity;
+
+        content.querySelectorAll('[data-line-index]').forEach((lineEl) => {
+            const lineRect = lineEl.getBoundingClientRect();
+            if (lineRect.bottom < 0 || lineRect.top > viewportHeight) return;
+
+            const lineIndex = parseInt(lineEl.getAttribute('data-line-index'), 10);
+            visibleLineIndexes.add(lineIndex);
+
+            getRowsForLine(lineEl, lineIndex).forEach((row) => {
+                if (row.bottom < 0 || row.top > viewportHeight) return;
+                const rowPayload = {
+                    lineIndex: row.lineIndex,
+                    rowIndex: row.rowIndex,
+                    start: row.start,
+                    end: row.end,
+                    text: row.text,
+                    top: Math.round(row.top),
+                    bottom: Math.round(row.bottom)
+                };
+                visibleRows.push(rowPayload);
+
+                if (row.top <= guideY && row.bottom >= guideY) {
+                    currentRow = rowPayload;
+                    if (rowPayload.text.trim()) {
+                        currentTextRow = rowPayload;
+                    }
+                }
+
+                const rowCenter = (row.top + row.bottom) / 2;
+                const distance = Math.abs(rowCenter - guideY);
+                if (distance < nearestDistance) {
+                    nearestDistance = distance;
+                    nearestRow = rowPayload;
+                }
+                if (rowPayload.text.trim() && distance < nearestTextDistance) {
+                    nearestTextDistance = distance;
+                    nearestTextRow = rowPayload;
+                }
+            });
+        });
+
+        const selectedRow = currentTextRow || nearestTextRow || currentRow || nearestRow;
+        return {
+            currentLineIndex: selectedRow ? selectedRow.lineIndex : -1,
+            currentRowText: selectedRow ? selectedRow.text : '',
+            currentRowStart: selectedRow ? selectedRow.start : 0,
+            currentRowEnd: selectedRow ? selectedRow.end : 0,
+            visibleLineIndexes: Array.from(visibleLineIndexes),
+            visibleRows: visibleRows.slice(0, 40)
+        };
+    };
+
+    const sendDisplayStatus = () => {
+        const container = containerRef.current;
+        const socket = wsRef.current;
+        const activeConfig = configRef.current;
+        if (!container || !socket || socket.readyState !== WebSocket.OPEN || !activeConfig) return;
+
+        const now = Date.now();
+        if (now - lastStatusSentRef.current < 120) return;
+        lastStatusSentRef.current = now;
+
+        const maxScroll = Math.max(0, container.scrollHeight - container.clientHeight);
+        const remainingPixels = Math.max(0, maxScroll - container.scrollTop);
+        const pixelsPerSecond = Math.max(1, (parseFloat(activeConfig.speed) || 1) * 30);
+        const progress = maxScroll > 0 ? clamp(container.scrollTop / maxScroll, 0, 1) : 0;
+        const visibleTextStatus = getVisibleTextStatus();
+
+        socket.send(JSON.stringify({
+            type: 'DISPLAY_STATUS',
+            payload: {
+                progress,
+                scrollTop: Math.round(container.scrollTop),
+                scrollHeight: container.scrollHeight,
+                clientHeight: container.clientHeight,
+                maxScroll,
+                remainingSeconds: remainingPixels / pixelsPerSecond,
+                ...visibleTextStatus
+            }
+        }));
+    };
+
+    const pauseAtEndIfNeeded = () => {
+        const container = containerRef.current;
+        const socket = wsRef.current;
+        const activeConfig = configRef.current;
+        if (!container || !socket || socket.readyState !== WebSocket.OPEN || !activeConfig) return;
+
+        const maxScroll = Math.max(0, container.scrollHeight - container.clientHeight);
+        const reachedEnd = maxScroll > 0 && container.scrollTop >= maxScroll - 2;
+        if (!activeConfig.isPlaying || !reachedEnd) {
+            endPauseSentRef.current = false;
+            return;
+        }
+
+        if (activeConfig.autoPauseAtEnd !== false && !endPauseSentRef.current) {
+            endPauseSentRef.current = true;
+            socket.send(JSON.stringify({
+                type: 'SYNC_STATE',
+                payload: { ...activeConfig, isPlaying: false }
+            }));
+            showToast("已到达稿件末尾");
+        }
+    };
+
     useEffect(() => {
         document.body.style.overflow = 'hidden';
         let reconnectTimer = null;
@@ -405,7 +785,7 @@ function DisplayView({ onExit }) {
             wsRef.current = socket;
 
             socket.onopen = () => {
-                socket.send(JSON.stringify({ type: 'REGISTER_ROLE', role: 'display' }));
+                socket.send(JSON.stringify({ type: 'REGISTER_ROLE', role: 'display', clientId: clientIdRef.current }));
             };
 
             socket.onmessage = (event) => {
@@ -428,6 +808,18 @@ function DisplayView({ onExit }) {
                         requestFullscreenCompat();
                     } else if (data.action === 'WAKE_LOCK') {
                         requestWakeLockCompat();
+                    }
+                } else if (data.type === 'DISPLAY_STATUS') {
+                    const payload = data.payload || {};
+                    if (payload.sourceId !== clientIdRef.current && configRef.current && configRef.current.strictSync !== false && containerRef.current) {
+                        lastLeaderStatusAtRef.current = Date.now();
+                        const localMaxScroll = Math.max(0, containerRef.current.scrollHeight - containerRef.current.clientHeight);
+                        const targetScroll = Number.isFinite(payload.maxScroll) && Math.abs(localMaxScroll - payload.maxScroll) > 2
+                            ? clamp(payload.progress || 0, 0, 1) * localMaxScroll
+                            : payload.scrollTop;
+                        if (Number.isFinite(targetScroll) && Math.abs(containerRef.current.scrollTop - targetScroll) > 1) {
+                            containerRef.current.scrollTop = targetScroll;
+                        }
                     }
                 }
             };
@@ -461,9 +853,12 @@ function DisplayView({ onExit }) {
     }, []);
 
     const animateScroll = useCallback(() => {
-        if (configRef.current && configRef.current.isPlaying && containerRef.current) {
+        const followingLeader = configRef.current && configRef.current.strictSync !== false && Date.now() - lastLeaderStatusAtRef.current < 1200;
+        if (configRef.current && configRef.current.isPlaying && containerRef.current && !followingLeader) {
             containerRef.current.scrollTop += configRef.current.speed * 0.5;
         }
+        pauseAtEndIfNeeded();
+        sendDisplayStatus();
         requestRef.current = requestAnimationFrame(animateScroll);
     }, []);
 
@@ -475,22 +870,10 @@ function DisplayView({ onExit }) {
     if (!config) return <div className="absolute inset-0 flex items-center justify-center text-neutral-500 z-40 bg-black">正在连接服务器...</div>;
 
     const renderTextBlocks = () => {
-        let activeSize = config.fontSize;
         return config.text.split('\\n').map((para, index) => {
-            let text = para;
-            const sizeRegex = /^&size:(\\d+)&/;
-            if (sizeRegex.test(text)) {
-                const match = text.match(sizeRegex);
-                activeSize = parseInt(match[1]);
-                text = text.replace(sizeRegex, '');
-            }
             return (
-                <div key={index} className="para-block min-h-[1.5em]" style={{ 
-                        fontSize: `${activeSize}px`,
-                        transition: config.lowPerformance ? 'none' : 'font-size 0.3s ease'
-                    }}
-                >
-                    {text || ' '}
+                <div key={index} data-line-index={index} className="para-block min-h-[1.5em]">
+                    {para || ' '}
                 </div>
             );
         });
@@ -502,6 +885,9 @@ function DisplayView({ onExit }) {
     ].filter(Boolean).join(' ') || 'none';
 
     const filterStyle = config.invertColors ? 'invert(1) hue-rotate(180deg)' : 'none';
+    const guidePosition = config.guidePosition || 50;
+    const textAlign = config.textAlign || 'left';
+    const leadPadding = Math.min(85, guidePosition + 10);
 
     return (
         <div className="h-screen w-screen bg-black text-white relative flex flex-col" style={{ filter: filterStyle, transition: 'filter 0.3s' }}>
@@ -519,11 +905,12 @@ function DisplayView({ onExit }) {
                 {config.isPlaying && (
                     <>
                         <div className="fixed left-0 w-full z-0 pointer-events-none" style={{
-                                top: '50%', transform: 'translateY(-50%)',
+                                top: `${guidePosition}%`, transform: 'translateY(-50%)',
                                 height: `${config.aidBlockHeight}px`, backgroundColor: config.aidBlockColor,
                                 transition: config.lowPerformance ? 'none' : 'background-color 0.3s ease'
                             }}></div>
-                        <div className="fixed top-1/2 left-0 w-full h-px z-0 pointer-events-none" style={{ 
+                        <div className="fixed left-0 w-full h-px z-0 pointer-events-none" style={{
+                                top: `${guidePosition}%`,
                                 backgroundColor: config.guideColor, boxShadow: `0 0 8px ${config.guideColor}`,
                                 transition: config.lowPerformance ? 'none' : 'background-color 0.3s ease'
                             }}></div>
@@ -534,10 +921,10 @@ function DisplayView({ onExit }) {
                         width: `${config.lineWidth}%`, transform: transformStyle, 
                         transition: config.lowPerformance ? 'none' : 'width 0.3s ease' 
                     }}>
-                    <div style={{ height: '60vh' }}></div>
+                    <div style={{ height: `${leadPadding}vh` }}></div>
                     
-                    <div className="whitespace-pre-wrap font-bold leading-relaxed" style={{ 
-                            color: config.fontColor, textShadow: '0 4px 12px rgba(0,0,0,0.8)',
+                    <div ref={contentRef} className="whitespace-pre-wrap font-bold leading-relaxed text-7xl" style={{
+                            color: config.fontColor, textAlign, textShadow: '0 4px 12px rgba(0,0,0,0.8)',
                             transition: config.lowPerformance ? 'none' : 'color 0.3s ease'
                         }}>
                         {renderTextBlocks()}

@@ -17,6 +17,15 @@ body { background-color: #171717; color: #fff; font-family: sans-serif; text-ali
     font-size: 18px; font-weight: bold; cursor: pointer; transition: background-color 0.2s;
 }
 .btn-action:active { background-color: #404040; }
+.speed-panel { clear: both; display: table; width: 100%; margin: 10px 0 20px; table-layout: fixed; }
+.speed-panel > * { display: table-cell; vertical-align: middle; }
+.btn-small {
+    width: 100%; padding: 14px 0;
+    background-color: #262626; color: #d4d4d4; border: none; border-radius: 14px;
+    font-size: 15px; font-weight: bold; cursor: pointer;
+}
+.btn-small:active { background-color: #404040; }
+#speedLabel { font-size: 14px; color: #a3a3a3; font-weight: bold; }
 .btn-reset {
     width: 60%; padding: 12px; margin: 12px auto; display: block;
     background-color: rgba(64, 64, 64, 0.5); color: #a3a3a3; border: none;
@@ -32,6 +41,9 @@ body.theme-light .btn-play { box-shadow: 0 10px 25px rgba(37,99,235,0.3); }
 body.theme-light .btn-play.playing { background-color: #fee2e2; color: #ef4444; border-color: rgba(239, 68, 68, 0.5); }
 body.theme-light .btn-action { background-color: #ffffff; color: #2563eb; border: 1px solid #e5e7eb; box-shadow: 0 2px 5px rgba(0,0,0,0.05); }
 body.theme-light .btn-action:active { background-color: #f3f4f6; }
+body.theme-light .btn-small { background-color: #ffffff; color: #4b5563; border: 1px solid #e5e7eb; }
+body.theme-light .btn-small:active { background-color: #f3f4f6; }
+body.theme-light #speedLabel { color: #4b5563; }
 body.theme-light .btn-reset { background-color: #e5e7eb; color: #4b5563; }
 body.theme-light .btn-reset:active { background-color: #d1d5db; }
 body.theme-light #status, body.theme-light #themeToggle { color: #6b7280; }

@@ -2,7 +2,11 @@ var currentState = null;
 var btnPlay = document.getElementById('btnPlay');
 var statusDiv = document.getElementById('status');
 var themeToggleBtn = document.getElementById('themeToggle');
+var speedLabel = document.getElementById('speedLabel');
 var isLightTheme = false;
+var SPEED_MIN = 1;
+var SPEED_MAX = 5;
+var SPEED_STEP = 0.1;
 
 themeToggleBtn.onclick = function() {
     isLightTheme = !isLightTheme;
@@ -56,6 +60,7 @@ function updateUI() {
         btnPlay.className = 'btn-play';
         btnPlay.innerText = '▶ 开始';
     }
+    speedLabel.innerText = '速度 ' + formatSpeed(currentState.speed);
 }
 
 function sendCommand(action) {
@@ -68,6 +73,27 @@ function updateState(partialState) {
     ajaxRequest('POST', '/api/update_state', partialState);
 }
 
+function clamp(value, min, max) {
+    if (value < min) return min;
+    if (value > max) return max;
+    return value;
+}
+
+function roundSpeed(value) {
+    return Math.round(value * 10) / 10;
+}
+
+function formatSpeed(value) {
+    return roundSpeed(parseFloat(value) || SPEED_MIN).toFixed(1);
+}
+
+function adjustSpeed(delta) {
+    if (!currentState) return;
+    var currentSpeed = parseFloat(currentState.speed) || SPEED_MIN;
+    var nextSpeed = roundSpeed(clamp(currentSpeed + delta, SPEED_MIN, SPEED_MAX));
+    updateState({ speed: nextSpeed });
+}
+
 btnPlay.onclick = function() {
     if (!currentState) return;
     updateState({ isPlaying: !currentState.isPlaying });
@@ -75,6 +101,8 @@ btnPlay.onclick = function() {
 
 document.getElementById('btnUp').onclick = function() { sendCommand('SCROLL_UP'); };
 document.getElementById('btnFastForward').onclick = function() { sendCommand('FAST_FORWARD'); };
+document.getElementById('btnSlower').onclick = function() { adjustSpeed(-SPEED_STEP); };
+document.getElementById('btnFaster').onclick = function() { adjustSpeed(SPEED_STEP); };
 
 document.getElementById('btnReset').onclick = function() { 
     sendCommand('RESET_SCROLL'); 
@@ -95,5 +123,13 @@ document.onkeydown = function(e) {
     if (key === 'F7' || key === 118) { 
         if(event.preventDefault) event.preventDefault(); else event.returnValue = false;
         document.getElementById('btnReset').onclick(); 
+    }
+    if (key === 'F5' || key === 116) {
+        if(event.preventDefault) event.preventDefault(); else event.returnValue = false;
+        adjustSpeed(-SPEED_STEP);
+    }
+    if (key === 'F6' || key === 117) {
+        if(event.preventDefault) event.preventDefault(); else event.returnValue = false;
+        adjustSpeed(SPEED_STEP);
     }
 };
